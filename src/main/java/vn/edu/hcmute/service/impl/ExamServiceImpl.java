@@ -11,6 +11,7 @@ import vn.edu.hcmute.dto.request.ExcelRowDTO;
 import vn.edu.hcmute.model.*;
 import vn.edu.hcmute.repository.*;
 import vn.edu.hcmute.service.IExamService;
+import vn.edu.hcmute.util.excel.ExcelUtils;
 
 import java.util.*;
 
@@ -28,48 +29,24 @@ public class ExamServiceImpl implements IExamService {
     @Override
     @Transactional
     public void saveExamFromExcel(MultipartFile file) throws Exception {
-        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
-            for (int sheetIdx = 0; sheetIdx < workbook.getNumberOfSheets(); sheetIdx++) {
-                Sheet sheet = workbook.getSheetAt(sheetIdx);
-                String examCode = sheet.getSheetName();
-                List<ExcelRowDTO> rows = parseSheetToDTOs(sheet);
-                if (examCode == null) {
-                    examCode = "SHEET_" + (sheetIdx + 1);
-                }
-                Exam exam = new Exam();
-                exam.setCode(examCode);
-                exam = examRepo.save(exam);
-                Map<String, QuestionGroup> groupMap = new HashMap<>();
-                for (ExcelRowDTO dto : rows) {
-                    processExcelRow(dto, exam, groupMap);
+        try (Workbook wb = new XSSFWorkbook(file.getInputStream())) {
+            for (int i = 0; i < wb.getNumberOfSheets(); i++) {
+                Sheet sheet = wb.getSheetAt(i);
+                String examCode = Optional.ofNullable(sheet.getSheetName())
+                        .orElse("SHEET_" + (i + 1));
+
+                Exam exam = examRepo.save(
+                        Exam.builder()
+                                .code(examCode)
+                                .build()
+                );
+
+                Map<String, QuestionGroup> cache = new HashMap<>();
+                for (ExcelRowDTO dto : ExcelUtils.toDtoList(sheet)) {
+                    processExcelRow(dto, exam, cache);
                 }
             }
         }
-    }
-
-    private List<ExcelRowDTO> parseSheetToDTOs(Sheet sheet) {
-        List<ExcelRowDTO> rows = new ArrayList<>();
-        Iterator<Row> it = sheet.iterator();
-        if (it.hasNext()) it.next(); // skip header
-        while (it.hasNext()) {
-            Row row = it.next();
-            ExcelRowDTO dto = new ExcelRowDTO();
-            dto.setPartId(getByteCell(row, 0));
-            dto.setGroupKey(getStringCell(row, 1));
-            dto.setSeqNumber(getShortCell(row));
-            dto.setPassageText(getStringCell(row, 3));
-            dto.setQuestionText(getStringCell(row, 4));
-            dto.setOptionA(getStringCell(row, 5));
-            dto.setOptionB(getStringCell(row, 6));
-            dto.setOptionC(getStringCell(row, 7));
-            dto.setOptionD(getStringCell(row, 8));
-            dto.setCorrectAnswer(getStringCell(row, 9));
-            dto.setAudioUrl(getStringCell(row, 10));
-            dto.setImageUrl(getStringCell(row, 11));
-            dto.setTags(getStringCell(row, 12));
-            rows.add(dto);
-        }
-        return rows;
     }
 
     private void processExcelRow(ExcelRowDTO dto, Exam exam, Map<String, QuestionGroup> groupMap) {
@@ -113,25 +90,5 @@ public class ExamServiceImpl implements IExamService {
             }
         }
         return tagSet;
-    }
-
-    // Hàm hỗ trợ đọc cell null-safe
-    private String getStringCell(Row row, int idx) {
-        Cell cell = row.getCell(idx);
-        return cell == null ? null : cell.toString().trim();
-    }
-    private Byte getByteCell(Row row, int idx) {
-        Cell cell = row.getCell(idx);
-        if (cell == null) return null;
-        if (cell.getCellType() == CellType.NUMERIC) return (byte) cell.getNumericCellValue();
-        try { return Byte.parseByte(cell.toString().trim()); }
-        catch (Exception e) { return null; }
-    }
-    private Short getShortCell(Row row) {
-        Cell cell = row.getCell(2);
-        if (cell == null) return null;
-        if (cell.getCellType() == CellType.NUMERIC) return (short) cell.getNumericCellValue();
-        try { return Short.parseShort(cell.toString().trim()); }
-        catch (Exception _) { return null; }
     }
 }
